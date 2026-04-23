@@ -1,0 +1,2 @@
+Command: ninja all
+ninja: error: 'C:/Users/XwQZ/fota_project/fota_main/partitions.csv', needed by 'partition_table/partition-table.bin', missing and no known rule to make it

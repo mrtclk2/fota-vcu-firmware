@@ -1,0 +1,22 @@
+idf_component_register(
+    SRCS
+        "fota_main.c"
+        "ble_handler.c"
+        "wifi_handler.c"
+        "ota_handler.c"
+        "uds_client.c"
+        "vehicle_data.c"
+        "can_handler.c"
+    INCLUDE_DIRS "."
+    REQUIRES
+        nvs_flash
+        esp_wifi
+        esp_event
+        bt
+        esp_https_ota
+        app_update
+        driver
+        esp_http_client
+        esp-tls
+        mbedtls
+)
