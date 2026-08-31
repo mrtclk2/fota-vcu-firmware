@@ -1,32 +1,88 @@
 # Secure Gateway iOS App
 
-`main/ble_handler.c` içindeki NimBLE GATT servisine (0x1815) BLE üzerinden
-bağlanan, SwiftUI + CoreBluetooth tabanlı iPhone uygulaması. Ekran tasarımı
-paylaşılan mock-up'larla birebir eşleşecek şekilde hazırlandı: Aracım ana
-ekranı, araç fotoğrafı seçimi, Bluetooth tarama/bağlanma sheet'i, Wi-Fi
-kimlik bilgisi gönderimi, OTA/VCU güncelleme ekranı, Diyagnostik ekranı ve
-canlı "Kart durumları" bildirim akışı.
+`fota-vcu-firmware` deposundaki ESP32 secure gateway'in NimBLE GATT servisine
+(0x1815) BLE üzerinden bağlanan, SwiftUI + CoreBluetooth tabanlı bağımsız bir
+iPhone uygulaması. Bu repo **hem VCU hem de secure gateway firmware
+kodundan bağımsızdır** — sadece BLE üzerinden konuştuğu protokolü bilir.
 
-Kod, gerçek bir Xcode projesi olarak değil (pbxproj dosyaları elle
-oluşturulduğunda küçük bir hata Xcode'un projeyi hiç açamamasına yol
-açabiliyor, bu riskli), **kaynak dosyalar** halinde `SecureGateway/` altında
-duruyor. Aşağıdaki adımlarla 5 dakikada çalışan bir Xcode projesine
-dönüştürebilirsiniz.
+Ekran tasarımı: Aracım ana ekranı, araç fotoğrafı seçimi, Bluetooth
+tarama/bağlanma sheet'i, Wi-Fi kimlik bilgisi gönderimi, OTA/VCU güncelleme
+ekranı, Diyagnostik ekranı ve canlı "Kart durumları" bildirim akışı.
 
-## 1) Firmware tarafında ne değişti?
+## Mac'iniz, Xcode'unuz veya Apple Developer hesabınız yoksa (Windows kullanıcıları)
+
+Bu repo, **hiç Mac açmadan** çalışan bir kurulum içeriyor:
+
+1. **Derleme** → GitHub Actions'ın barındırdığı bulut Mac'i (`.github/workflows/build-ipa.yml`)
+   her push'ta `xcodegen` ile projeyi üretir, `xcodebuild` ile **imzasız**
+   bir `.ipa` derler ve Actions sekmesinde indirilebilir bir artifact olarak
+   bırakır. Siz hiçbir zaman Xcode açmıyorsunuz.
+2. **Kurulum** → Windows'ta ücretsiz [Sideloadly](https://sideloadly.io)
+   programını kullanarak, ücretsiz bir Apple ID ile, telefonunuzu USB'ye
+   takıp bu `.ipa`'yı doğrudan iPhone'unuza kurarsınız. TestFlight'a,
+   Xcode'a veya $99/yıllık Developer Program üyeliğine gerek yok.
+
+### Adım adım
+
+1. **GitHub'da derlemeyi çalıştırın**: Repo → **Actions** sekmesi →
+   "Build unsigned IPA" workflow'u → **Run workflow** (veya `main`'e her
+   push otomatik tetikler). Bitince açılan run'ın altındaki
+   **Artifacts** bölümünden `SecureGateway-unsigned-ipa` dosyasını indirin
+   (bir `.zip` içinde `.ipa` gelir).
+2. **Sideloadly'yi kurun**: [sideloadly.io](https://sideloadly.io) →
+   Windows sürümünü indirip kurun. Ayrıca bilgisayarınızda
+   [iTunes/Apple Devices uygulaması](https://apps.microsoft.com/detail/9NP83LWLPZ9K)
+   kurulu olmalı (Sideloadly, iPhone'u tanımak için Apple'ın USB
+   sürücülerine ihtiyaç duyar).
+3. **Ücretsiz bir Apple ID hazırlayın** (mevcut Apple ID'niz de olur,
+   sadece kredi kartı/ödeme bilgisi gerekmez — tamamen ücretsiz "Personal
+   Team" imzalama kullanılacak).
+4. **iPhone'u USB ile bilgisayara bağlayın**, telefonda "Bu bilgisayara
+   güven" uyarısını onaylayın.
+5. Sideloadly'yi açın, üstte cihazınızı seçin, indirdiğiniz `.ipa`
+   dosyasını sürükleyip bırakın, Apple ID'nizi girin, **Start** deyin.
+   Uygulama telefona kurulur.
+6. İlk açılışta telefonda **Ayarlar → Genel → VPN ve Cihaz Yönetimi**
+   altından geliştirici profilinize "Güven" demeniz gerekir (ücretsiz
+   imzalı her uygulamada bir kereye mahsus).
+7. **Önemli kısıt**: Ücretsiz Apple ID ile imzalanan uygulamalar **7 gün
+   sonra otomatik olarak açılmaz hale gelir**. Sideloadly'yi tekrar açıp
+   aynı `.ipa` ile "Start" demeniz yeterli (yeni bir derleme gerekmez,
+   1 dakika sürer). Kalıcı bir çözüm isterseniz Apple Developer Program'a
+   ($99/yıl) üye olup gerçek TestFlight/ad-hoc dağıtımına geçebilirsiniz.
+8. Bluetooth (CoreBluetooth central rolü — tarama/bağlanma/okuma/yazma) 
+   ücretsiz imzalama ile **tam çalışır**, özel bir Apple yetkilendirmesi
+   (entitlement) gerektirmez.
+
+## Mac'iniz varsa: normal Xcode akışı
+
+1. Xcode'da bu klasörü açın: **File → Open** → `project.yml`'in içinde
+   bulunduğu klasörü seçmek yerine, önce bir kez
+   `xcodegen generate` çalıştırın (Homebrew: `brew install xcodegen`) —
+   bu, `SecureGateway.xcodeproj` dosyasını üretir. Ardından o `.xcodeproj`
+   dosyasını Xcode'da açın.
+2. **Signing & Capabilities**'te kendi Apple ID / geliştirici takımınızı
+   seçin (`project.yml` içindeki `DEVELOPMENT_TEAM` boş bırakıldı, Xcode
+   otomatik dolduracak).
+3. Gerçek bir iPhone'a bağlayıp **⌘R** ile çalıştırın.
+
+   > CoreBluetooth Simulator'de çalışmaz — mutlaka fiziksel iPhone gerekir.
+
+## Firmware tarafında ne değişti? (`fota-vcu-firmware` reposunda)
 
 Ekran görüntülerindeki "Kart durumları" kutusu (`OTA: OTA_PROGRESS (%20)`,
 `Wi-Fi: WiFi bağlandı. IP: ...`, `OTA: VCU CAN flash hatasi` gibi anlık
 metinler) eskiden **sadece seri log'a** yazılıyordu, BLE üzerinden hiç
-gönderilmiyordu. Bu commit'te `main/ble_handler.c`'ye 4. bir characteristic
-(NOTIFY, `...cd126`) eklendi ve `wifi_handler.c` / `ota_handler.c` bu yeni
-`ble_notify_status()` fonksiyonunu WiFi bağlantı sonucu, self-OTA ilerlemesi
-ve VCU CAN flash sonucu için çağırıyor. Uygulamanın "Kart durumları" ve OTA
-ilerleme çubuğunun canlı çalışması için **gateway'in bu güncel firmware ile
-yeniden flashlanması gerekir**. WiFi gönderimi, OTA tetikleme ve araç
-telemetrisi (soc/tork/vites/DTC) zaten eski firmware ile de çalışır.
+gönderilmiyordu. `fota-vcu-firmware` reposundaki `main/ble_handler.c`'ye
+4. bir characteristic (NOTIFY, `...cd126`) eklendi ve `wifi_handler.c` /
+`ota_handler.c` bu yeni `ble_notify_status()` fonksiyonunu WiFi bağlantı
+sonucu, self-OTA ilerlemesi ve VCU CAN flash sonucu için çağırıyor. Bu
+uygulamanın "Kart durumları" ve OTA ilerleme çubuğunun canlı çalışması
+için **gateway'in bu güncel firmware ile yeniden flashlanması gerekir**.
+WiFi gönderimi, OTA tetikleme ve araç telemetrisi (soc/tork/vites/DTC)
+zaten eski firmware ile de çalışır.
 
-## 2) GATT protokolü (referans)
+## GATT protokolü (referans)
 
 | Characteristic | UUID | Yön | İçerik |
 |---|---|---|---|
@@ -40,55 +96,31 @@ Advertising sadece cihaz adını (`FOTA_ESP32`) yayınlıyor, servis UUID
 listesi yaymıyor — bu yüzden uygulama `scanForPeripherals(withServices: nil)`
 ile tarayıp adına göre filtreliyor (`BLEManager.swift`).
 
-## 3) Xcode projesi oluşturma (~5 dk)
-
-1. Xcode → **File → New → Project → iOS → App**
-   - Product Name: `SecureGateway`
-   - Interface: **SwiftUI**, Language: **Swift**
-   - Minimum Deployments: **iOS 17.0**
-2. Proje oluşunca Xcode'un otomatik ürettiği `ContentView.swift` ve
-   `SecureGatewayApp.swift` dosyalarını **silin** (bizim kendi
-   `App/SecureGatewayApp.swift` dosyamız `@main` içeriyor, ikisi birden
-   olursa derleme hatası verir).
-3. Finder'da bu klasördeki `SecureGateway/SecureGateway/App`, `BLE`,
-   `Models`, `Views` klasörlerini Xcode proje gezgininde uygulama
-   hedefinizin üstüne sürükleyin. "Copy items if needed" ve target
-   membership (SecureGateway) işaretli olsun.
-4. Target → **Info** sekmesine şu 4 anahtarı ekleyin (veya
-   `Resources/Info.plist` içeriğini referans alarak Custom iOS Target
-   Properties'e ekleyin):
-   - `Privacy - Bluetooth Always Usage Description`
-   - `Privacy - Camera Usage Description`
-   - `Privacy - Photo Library Usage Description`
-   - `Required background modes` → `App communicates using CoreBluetooth`
-5. **Signing & Capabilities**'te kendi Apple ID / geliştirici takımınızı
-   seçin.
-6. Gerçek bir iPhone'a bağlayıp **⌘R** ile çalıştırın.
-
-   > CoreBluetooth Simulator'de çalışmaz — mutlaka fiziksel iPhone gerekir.
-
-## 4) Dosya haritası
+## Dosya haritası
 
 ```
-SecureGateway/SecureGateway/
-├── App/SecureGatewayApp.swift        // @main giriş noktası
-├── BLE/GatewayProtocol.swift         // UUID + komut sabitleri
-├── BLE/ConnectionState.swift         // Bağlantı durumu enum'u
-├── BLE/BLEManager.swift              // CoreBluetooth central/peripheral mantığı
-├── Models/VehicleData.swift          // Telemetri JSON modeli
-├── Views/VehicleHomeView.swift       // "Aracım" ana ekranı
-├── Views/VehiclePhotoSheet.swift     // Araç fotoğrafı seçim sheet'i
-├── Views/CameraPicker.swift          // Kamera köprüsü (UIImagePickerController)
-├── Views/VehiclePhotoStore.swift     // Fotoğrafı cihazda önbelleğe alma
-├── Views/BluetoothConnectSheet.swift // Tarama/bağlanma sheet'i
-├── Views/WifiCredentialsSheet.swift  // SSID/şifre formu
-├── Views/UpdatesView.swift           // Gateway + VCU OTA tetikleme
-├── Views/DiagnosticsView.swift       // DTC/HVIL/vites/fren
-├── Views/SettingsSheet.swift         // Bağlantıyı kes vb.
-└── Resources/Info.plist              // İzin metinleri (referans)
+.
+├── project.yml                        // XcodeGen spesifikasyonu (.xcodeproj bundan üretilir)
+├── .github/workflows/build-ipa.yml    // Bulut Mac'te imzasız .ipa derleyen CI
+└── SecureGateway/SecureGateway/
+    ├── App/SecureGatewayApp.swift        // @main giriş noktası
+    ├── BLE/GatewayProtocol.swift         // UUID + komut sabitleri
+    ├── BLE/ConnectionState.swift         // Bağlantı durumu enum'u
+    ├── BLE/BLEManager.swift              // CoreBluetooth central/peripheral mantığı
+    ├── Models/VehicleData.swift          // Telemetri JSON modeli
+    ├── Views/VehicleHomeView.swift       // "Aracım" ana ekranı
+    ├── Views/VehiclePhotoSheet.swift     // Araç fotoğrafı seçim sheet'i
+    ├── Views/CameraPicker.swift          // Kamera köprüsü (UIImagePickerController)
+    ├── Views/VehiclePhotoStore.swift     // Fotoğrafı cihazda önbelleğe alma
+    ├── Views/BluetoothConnectSheet.swift // Tarama/bağlanma sheet'i
+    ├── Views/WifiCredentialsSheet.swift  // SSID/şifre formu
+    ├── Views/UpdatesView.swift           // Gateway + VCU OTA tetikleme
+    ├── Views/DiagnosticsView.swift       // DTC/HVIL/vites/fren
+    ├── Views/SettingsSheet.swift         // Bağlantıyı kes vb.
+    └── Resources/Info.plist              // İzin metinleri + arkaplan modu
 ```
 
-## 5) Bilinçli olarak eklenmeyenler
+## Bilinçli olarak eklenmeyenler
 
 - **Kilidi aç / Kilitle**: Firmware'de (CAN handler / UDS client) buna
   karşılık gelen bir komut yok. Butonlar arayüzde duruyor ama basınca

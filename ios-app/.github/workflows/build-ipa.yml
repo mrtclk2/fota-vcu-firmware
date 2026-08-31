@@ -1,0 +1,51 @@
+name: Build unsigned IPA
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "project.yml"
+      - "SecureGateway/**"
+      - ".github/workflows/build-ipa.yml"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    # macOS runner = GitHub'ın barındırdığı bulut Mac. Yerel Mac/Xcode gerekmez.
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project from project.yml
+        run: xcodegen generate
+
+      - name: Build unsigned .app (device/arm64, no signing)
+        run: |
+          xcodebuild \
+            -project SecureGateway.xcodeproj \
+            -scheme SecureGateway \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            clean build
+
+      - name: Package as unsigned .ipa
+        run: |
+          set -e
+          APP_PATH="build/Build/Products/Release-iphoneos/SecureGateway.app"
+          mkdir -p Payload
+          cp -r "$APP_PATH" Payload/
+          zip -r SecureGateway-unsigned.ipa Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SecureGateway-unsigned-ipa
+          path: SecureGateway-unsigned.ipa
+          retention-days: 14
