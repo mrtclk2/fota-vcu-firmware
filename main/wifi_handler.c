@@ -1,10 +1,12 @@
 #include "wifi_handler.h"
+#include "ble_handler.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include <string.h>
+#include <stdio.h>
 
 static const char *TAG = "WIFI";
 
@@ -56,14 +58,25 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        bool was_connected = wifi_connected;
         wifi_connected  = false;
         wifi_connecting = false;
         ESP_LOGI(TAG, "WiFi bağlantısı kesildi");
+        if (was_connected) {
+            ble_notify_status("Wi-Fi: Bağlantı kesildi");
+        } else {
+            ble_notify_status("Wi-Fi: Bağlanamadı");
+        }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         ESP_LOGI(TAG, "WiFi bağlandı! IP: " IPSTR, IP2STR(&event->ip_info.ip));
         wifi_connected  = true;
         wifi_connecting = false;
+
+        char status[64];
+        snprintf(status, sizeof(status), "Wi-Fi: WiFi bağlandı. IP: " IPSTR,
+                 IP2STR(&event->ip_info.ip));
+        ble_notify_status(status);
     }
 }
 

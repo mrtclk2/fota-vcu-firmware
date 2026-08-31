@@ -1,6 +1,7 @@
 #include "ota_handler.h"
 #include "uds_client.h"
 #include "wifi_handler.h"
+#include "ble_handler.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_https_ota.h"
@@ -11,6 +12,7 @@
 #include "freertos/task.h"
 #include <stdbool.h>
 #include <string.h>
+#include <stdio.h>
 
 static const char *TAG = "OTA";
 
@@ -59,20 +61,29 @@ static void ota_task(void *pvParameter)
 
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "esp_https_ota_begin basarisiz: %s", esp_err_to_name(ret));
+        ble_notify_status("OTA: Baslatilamadi");
         ota_running = false;
         vTaskDelete(NULL);
         return;
     }
 
     /* Chunk chunk indir — bu sayede ilerleme loglanabilir */
+    int last_percent = -1;
     while (1) {
         ret = esp_https_ota_perform(ota_handle);
         if (ret == ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
             int total   = esp_https_ota_get_image_size(ota_handle);
             int written = esp_https_ota_get_image_len_read(ota_handle);
             if (total > 0) {
+                int percent = (written * 100) / total;
                 ESP_LOGI(TAG, "OTA ilerleme: %d / %d byte (%d%%)",
-                         written, total, (written * 100) / total);
+                         written, total, percent);
+                if (percent != last_percent) {
+                    last_percent = percent;
+                    char status[48];
+                    snprintf(status, sizeof(status), "OTA: OTA_PROGRESS (%%%d)", percent);
+                    ble_notify_status(status);
+                }
             }
             continue;
         }
@@ -81,6 +92,7 @@ static void ota_task(void *pvParameter)
 
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "OTA indirme hatasi: %s", esp_err_to_name(ret));
+        ble_notify_status("OTA: Indirme hatasi");
         esp_https_ota_abort(ota_handle);
         ota_running = false;
         vTaskDelete(NULL);
@@ -90,6 +102,7 @@ static void ota_task(void *pvParameter)
     /* Firmware bütünlüğünü kontrol et */
     if (!esp_https_ota_is_complete_data_received(ota_handle)) {
         ESP_LOGE(TAG, "Firmware eksik indirildi, OTA iptal");
+        ble_notify_status("OTA: Eksik indirme, iptal edildi");
         esp_https_ota_abort(ota_handle);
         ota_running = false;
         vTaskDelete(NULL);
@@ -100,12 +113,14 @@ static void ota_task(void *pvParameter)
     ret = esp_https_ota_finish(ota_handle);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "esp_https_ota_finish basarisiz: %s", esp_err_to_name(ret));
+        ble_notify_status("OTA: Tamamlanamadi");
         ota_running = false;
         vTaskDelete(NULL);
         return;
     }
 
     ESP_LOGI(TAG, "OTA basarili! Yeniden baslatiliyor...");
+    ble_notify_status("OTA: Basarili, yeniden baslatiliyor");
     ota_running = false;
 
     vTaskDelay(pdMS_TO_TICKS(500));
@@ -175,11 +190,13 @@ static void vcu_fw_task(void *pvParameter)
     const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
     if (!part) {
         ESP_LOGE(TAG, "İnaktif OTA partition bulunamadı");
+        ble_notify_status("OTA: VCU icin partition bulunamadi");
         goto done;
     }
 
     if (esp_partition_erase_range(part, 0, part->size) != ESP_OK) {
         ESP_LOGE(TAG, "Partition silinemedi");
+        ble_notify_status("OTA: VCU partition silinemedi");
         goto done;
     }
 
@@ -194,6 +211,7 @@ static void vcu_fw_task(void *pvParameter)
 
     if (esp_http_client_open(client, 0) != ESP_OK) {
         ESP_LOGE(TAG, "HTTP bağlantısı açılamadı");
+        ble_notify_status("OTA: VCU firmware indirme hatasi");
         esp_http_client_cleanup(client);
         goto done;
     }
@@ -201,6 +219,7 @@ static void vcu_fw_task(void *pvParameter)
     int content_length = esp_http_client_fetch_headers(client);
     if (content_length <= 0) {
         ESP_LOGE(TAG, "Content-Length alınamadı");
+        ble_notify_status("OTA: VCU firmware indirme hatasi");
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
         goto done;
@@ -210,6 +229,7 @@ static void vcu_fw_task(void *pvParameter)
     uint8_t  buf[256];
     uint32_t offset = 0;
     int      rlen;
+    int      last_percent = -1;
 
     while (offset < (uint32_t)content_length) {
         rlen = esp_http_client_read(client, (char *)buf, sizeof(buf));
@@ -219,6 +239,14 @@ static void vcu_fw_task(void *pvParameter)
             break;
         }
         offset += rlen;
+
+        int percent = (int)((offset * 100) / (uint32_t)content_length);
+        if (percent != last_percent) {
+            last_percent = percent;
+            char status[48];
+            snprintf(status, sizeof(status), "OTA: VCU_PROGRESS (%%%d)", percent);
+            ble_notify_status(status);
+        }
     }
 
     esp_http_client_close(client);
@@ -226,6 +254,7 @@ static void vcu_fw_task(void *pvParameter)
 
     if (offset != (uint32_t)content_length) {
         ESP_LOGE(TAG, "İndirme eksik: %lu / %d byte", (unsigned long)offset, content_length);
+        ble_notify_status("OTA: VCU firmware eksik indirildi");
         goto done;
     }
 
@@ -234,8 +263,10 @@ static void vcu_fw_task(void *pvParameter)
     esp_err_t ret = uds_client_flash_vcu(part, (uint32_t)content_length);
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "VCU firmware güncelleme başarılı!");
+        ble_notify_status("OTA: VCU firmware guncelleme basarili");
     } else {
         ESP_LOGE(TAG, "VCU UDS flash hatası: %s", esp_err_to_name(ret));
+        ble_notify_status("OTA: VCU CAN flash hatasi");
     }
 
 done:

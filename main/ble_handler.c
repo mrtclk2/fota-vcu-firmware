@@ -9,6 +9,7 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 #include <string.h>
+#include <stdio.h>
 
 static const char *TAG = "BLE";
 static const char *DEVICE_NAME = "FOTA_ESP32";
@@ -26,9 +27,14 @@ static const ble_uuid128_t vehicle_chr_uuid =
     BLE_UUID128_INIT(0x25, 0xd1, 0xbc, 0xea, 0x5f, 0x78, 0x23, 0x15,
                      0xde, 0xef, 0x12, 0x12, 0x25, 0x15, 0x00, 0x00);
 
+static const ble_uuid128_t status_chr_uuid =
+    BLE_UUID128_INIT(0x26, 0xd1, 0xbc, 0xea, 0x5f, 0x78, 0x23, 0x15,
+                     0xde, 0xef, 0x12, 0x12, 0x25, 0x15, 0x00, 0x00);
+
 static uint16_t wifi_chr_val_handle;
 static uint16_t ota_chr_val_handle;
 static uint16_t vehicle_chr_val_handle;
+static uint16_t status_chr_val_handle;
 
 /* Bağlı client'ın connection handle'ı */
 static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
@@ -167,9 +173,12 @@ static int ota_chr_access(uint16_t conn_handle, uint16_t attr_handle,
 
     /* OTA:STATUS → tüm OTA durumları */
     if (strncmp(buf, "OTA:STATUS", 10) == 0) {
-        ESP_LOGI(TAG, "Self OTA: %s | VCU OTA: %s",
+        char status[96];
+        snprintf(status, sizeof(status), "OTA: Self=%s VCU=%s",
                  ota_is_running()     ? "RUNNING" : "IDLE",
                  vcu_fw_is_running()  ? "RUNNING" : "IDLE");
+        ESP_LOGI(TAG, "%s", status);
+        ble_notify_status(status);
         return 0;
     }
 
@@ -182,6 +191,22 @@ static int ota_chr_access(uint16_t conn_handle, uint16_t attr_handle,
  * ──────────────────────────────────────────── */
 static int vehicle_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+    (void)ctxt;
+    /* Sadece NOTIFY — write desteklenmiyor */
+    return 0;
+}
+
+/* ────────────────────────────────────────────
+ * Status characteristic (NOTIFY only)
+ * WiFi bağlantısı ve OTA/VCU flash olaylarının
+ * insan-okunur durum metinleri buradan gönderilir.
+ * ──────────────────────────────────────────── */
+static int status_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                              struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     (void)conn_handle;
     (void)attr_handle;
@@ -217,6 +242,13 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
                 .access_cb  = vehicle_chr_access,
                 .flags      = BLE_GATT_CHR_F_NOTIFY,
                 .val_handle = &vehicle_chr_val_handle,
+            },
+            /* Status characteristic (WiFi/OTA olay metinleri) */
+            {
+                .uuid       = &status_chr_uuid.u,
+                .access_cb  = status_chr_access,
+                .flags      = BLE_GATT_CHR_F_NOTIFY,
+                .val_handle = &status_chr_val_handle,
             },
             { 0 }
         },
@@ -277,6 +309,25 @@ void ble_notify_vehicle_data(const char *json)
     int rc = ble_gatts_notify_custom(s_conn_handle, vehicle_chr_val_handle, om);
     if (rc != 0) {
         ESP_LOGW(TAG, "Notify gonderilemedi: %d", rc);
+    }
+}
+
+/* ── Status notify fonksiyonu ── */
+void ble_notify_status(const char *text)
+{
+    if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+        return; /* Bağlı client yok */
+    }
+
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(text, strlen(text));
+    if (om == NULL) {
+        ESP_LOGE(TAG, "status mbuf olusturulamadi");
+        return;
+    }
+
+    int rc = ble_gatts_notify_custom(s_conn_handle, status_chr_val_handle, om);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "Status notify gonderilemedi: %d", rc);
     }
 }
 
