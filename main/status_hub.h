@@ -1,6 +1,5 @@
 #pragma once
 
-#include <stdbool.h>
 #include <stddef.h>
 
 /**
@@ -14,6 +13,11 @@ void status_hub_init(void);
 void status_hub_publish(const char *text);
 void status_hub_get_last(char *buf, size_t size);
 
-/* OTA ilerleme yüzdesi (self-OTA ve VCU-OTA ayrı ayrı takip edilir) */
-void status_hub_set_progress(bool is_vcu, int percent);
-void status_hub_get_progress(int *self_pct, int *vcu_pct);
+/* OTA ilerleme yüzdeleri — üç ayrı aşama, üç ayrı sayaç (aynı göstergeyi
+ * paylaşırlarsa "indirme %100" olur olmaz aniden "flash %0"a düşüp
+ * kafa karıştırırlar; bu yüzden ayrılar). */
+void status_hub_set_self_progress(int percent);        /* Gateway kendi OTA'sı */
+void status_hub_set_vcu_download_progress(int percent); /* WiFi ile indirme */
+void status_hub_set_vcu_flash_progress(int percent);     /* CAN/UDS ile flash */
+
+void status_hub_get_progress(int *self_pct, int *vcu_dl_pct, int *vcu_flash_pct);

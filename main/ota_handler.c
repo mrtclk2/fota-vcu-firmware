@@ -80,7 +80,7 @@ static void ota_task(void *pvParameter)
                          written, total, percent);
                 if (percent != last_percent) {
                     last_percent = percent;
-                    status_hub_set_progress(false, percent);
+                    status_hub_set_self_progress(percent);
                     char status[48];
                     snprintf(status, sizeof(status), "OTA: OTA_PROGRESS (%%%d)", percent);
                     status_hub_publish(status);
@@ -145,7 +145,7 @@ esp_err_t ota_start(const char *url)
     strncpy(ota_url, url, sizeof(ota_url) - 1);
     ota_url[sizeof(ota_url) - 1] = '\0';
 
-    status_hub_set_progress(false, 0);
+    status_hub_set_self_progress(0);
     ota_running = true;
 
     BaseType_t ret = xTaskCreate(
@@ -177,6 +177,17 @@ bool ota_is_running(void)
  * ══════════════════════════════════════════════════════════════════ */
 static volatile bool vcu_running = false;
 static char          vcu_url[512];
+
+/* CAN/UDS transferi çok yavaş (5 byte/frame + her frame'de ack) — bu
+ * geri bildirim olmadan gateway'in kendi paneli dakikalarca "donmuş"
+ * görünür, oysa VCU'nun kendi paneli zaten kendi ilerlemesini gösterir. */
+static void uds_flash_progress_cb(int percent)
+{
+    status_hub_set_vcu_flash_progress(percent);
+    char status[48];
+    snprintf(status, sizeof(status), "OTA: VCU_FLASH_PROGRESS (%%%d)", percent);
+    status_hub_publish(status);
+}
 
 static void vcu_fw_task(void *pvParameter)
 {
@@ -245,9 +256,9 @@ static void vcu_fw_task(void *pvParameter)
         int percent = (int)((offset * 100) / (uint32_t)content_length);
         if (percent != last_percent) {
             last_percent = percent;
-            status_hub_set_progress(true, percent);
+            status_hub_set_vcu_download_progress(percent);
             char status[48];
-            snprintf(status, sizeof(status), "OTA: VCU_PROGRESS (%%%d)", percent);
+            snprintf(status, sizeof(status), "OTA: VCU_DOWNLOAD_PROGRESS (%%%d)", percent);
             status_hub_publish(status);
         }
     }
@@ -262,8 +273,9 @@ static void vcu_fw_task(void *pvParameter)
     }
 
     ESP_LOGI(TAG, "İndirme tamamlandı. CAN UDS ile VCU'ya gönderiliyor...");
+    status_hub_publish("OTA: VCU icin CAN/UDS flash basliyor");
 
-    esp_err_t ret = uds_client_flash_vcu(part, (uint32_t)content_length);
+    esp_err_t ret = uds_client_flash_vcu(part, (uint32_t)content_length, uds_flash_progress_cb);
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "VCU firmware güncelleme başarılı!");
         status_hub_publish("OTA: VCU firmware guncelleme basarili");
@@ -289,7 +301,8 @@ esp_err_t vcu_fw_flash(const char *url)
     }
     strncpy(vcu_url, url, sizeof(vcu_url) - 1);
     vcu_url[sizeof(vcu_url) - 1] = '\0';
-    status_hub_set_progress(true, 0);
+    status_hub_set_vcu_download_progress(0);
+    status_hub_set_vcu_flash_progress(0);
     vcu_running = true;
 
     if (xTaskCreate(vcu_fw_task, "vcu_fw", 8192, NULL, 5, NULL) != pdPASS) {

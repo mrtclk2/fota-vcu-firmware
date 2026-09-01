@@ -7,8 +7,9 @@
 static char s_last[128] = "Henuz durum bildirimi yok";
 static SemaphoreHandle_t s_mutex;
 
-static volatile int s_self_pct = 0;
-static volatile int s_vcu_pct = 0;
+static volatile int s_self_pct       = 0;
+static volatile int s_vcu_dl_pct     = 0;
+static volatile int s_vcu_flash_pct  = 0;
 
 void status_hub_init(void)
 {
@@ -38,17 +39,13 @@ void status_hub_get_last(char *buf, size_t size)
     }
 }
 
-void status_hub_set_progress(bool is_vcu, int percent)
-{
-    if (is_vcu) {
-        s_vcu_pct = percent;
-    } else {
-        s_self_pct = percent;
-    }
-}
+void status_hub_set_self_progress(int percent)        { s_self_pct      = percent; }
+void status_hub_set_vcu_download_progress(int percent) { s_vcu_dl_pct    = percent; }
+void status_hub_set_vcu_flash_progress(int percent)     { s_vcu_flash_pct = percent; }
 
-void status_hub_get_progress(int *self_pct, int *vcu_pct)
+void status_hub_get_progress(int *self_pct, int *vcu_dl_pct, int *vcu_flash_pct)
 {
-    if (self_pct) *self_pct = s_self_pct;
-    if (vcu_pct) *vcu_pct = s_vcu_pct;
+    if (self_pct)      *self_pct      = s_self_pct;
+    if (vcu_dl_pct)    *vcu_dl_pct    = s_vcu_dl_pct;
+    if (vcu_flash_pct) *vcu_flash_pct = s_vcu_flash_pct;
 }

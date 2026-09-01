@@ -58,7 +58,8 @@ static esp_err_t uds_req(const uint8_t *req, uint8_t req_len,
 }
 
 /* ── Public API ──────────────────────────────────────────────────── */
-esp_err_t uds_client_flash_vcu(const esp_partition_t *part, uint32_t fw_size)
+esp_err_t uds_client_flash_vcu(const esp_partition_t *part, uint32_t fw_size,
+                                uds_progress_cb_t progress_cb)
 {
     if (s_running) return ESP_ERR_INVALID_STATE;
     s_running = true;
@@ -110,6 +111,7 @@ esp_err_t uds_client_flash_vcu(const esp_partition_t *part, uint32_t fw_size)
         uint8_t  block_seq = 1;
         uint32_t offset    = 0;
         uint8_t  chunk[UDS_DATA_PER_FRAME];
+        int      last_pct  = -1;
 
         while (offset < fw_size) {
             uint32_t rem      = fw_size - offset;
@@ -135,6 +137,14 @@ esp_err_t uds_client_flash_vcu(const esp_partition_t *part, uint32_t fw_size)
                 ESP_LOGI(TAG, "   %lu / %lu byte (%lu%%)",
                          (unsigned long)offset, (unsigned long)fw_size,
                          (unsigned long)(offset * 100 / fw_size));
+            }
+
+            if (progress_cb && fw_size > 0) {
+                int pct = (int)(((uint64_t)offset * 100) / fw_size);
+                if (pct != last_pct) {
+                    last_pct = pct;
+                    progress_cb(pct);
+                }
             }
         }
     }

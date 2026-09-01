@@ -92,10 +92,13 @@ static const char *dashboard_html =
 "<div class='bar-track'><div class='bar-fill' id='o_bar'></div></div>"
 "</div>"
 
-"<div class='card'><h2>VCU Güncelle</h2><p class='sub'>Wi-Fi ile indirilir, CAN/UDS ile VCU'ya flashlanır</p>"
+"<div class='card'><h2>VCU Güncelle</h2><p class='sub'>Wi-Fi ile indirilir, CAN/UDS ile VCU'ya flashlanır (flash yavaştır, dakikalar sürebilir)</p>"
 "<input id='v_url' placeholder='https://.../vcu_firmware.bin'>"
 "<button onclick='sendOta(\"vcu\")'>Güncelle</button><div class='msg' id='v_msg'></div>"
-"<div class='bar-track'><div class='bar-fill' id='v_bar'></div></div>"
+"<div style='font-size:.72rem;color:#5a6580;margin-top:10px;'>İndirme</div>"
+"<div class='bar-track'><div class='bar-fill' id='v_dl_bar'></div></div>"
+"<div style='font-size:.72rem;color:#5a6580;margin-top:8px;'>VCU Flash (CAN/UDS)</div>"
+"<div class='bar-track'><div class='bar-fill' id='v_flash_bar'></div></div>"
 "</div>"
 
 "<div class='card'><h2>VCU Özet</h2><p class='sub'>CAN üzerinden bildirilen son değerler</p>"
@@ -131,7 +134,8 @@ static const char *dashboard_html =
 "document.getElementById('ap_ssid').textContent=d.ap_ssid;"
 "pill(document.getElementById('ble_pill'),d.ble_connected,'Bağlı','Bağlı değil');"
 "document.getElementById('o_bar').style.width=(d.self_ota_active?d.self_ota_pct:0)+'%';"
-"document.getElementById('v_bar').style.width=(d.vcu_ota_active?d.vcu_ota_pct:0)+'%';"
+"document.getElementById('v_dl_bar').style.width=(d.vcu_ota_active?d.vcu_dl_pct:0)+'%';"
+"document.getElementById('v_flash_bar').style.width=(d.vcu_ota_active?d.vcu_flash_pct:0)+'%';"
 "const vc=d.vcu||{};"
 "document.getElementById('vc_soc').textContent=(vc.soc??'--')+'%';"
 "document.getElementById('vc_mode').textContent=MOD[vc.state]||'-';"
@@ -319,12 +323,12 @@ static void ws_broadcast_task(void *pv)
         char ap_ssid[24];
         char status[128];
         char vjson[300];
-        int  self_pct = 0, vcu_pct = 0;
+        int  self_pct = 0, vcu_dl_pct = 0, vcu_flash_pct = 0;
 
         wifi_get_sta_ip(sta_ip, sizeof(sta_ip));
         wifi_get_ap_ssid(ap_ssid, sizeof(ap_ssid));
         status_hub_get_last(status, sizeof(status));
-        status_hub_get_progress(&self_pct, &vcu_pct);
+        status_hub_get_progress(&self_pct, &vcu_dl_pct, &vcu_flash_pct);
         vehicle_data_to_json(vjson, sizeof(vjson));
 
         snprintf(json, sizeof(json),
@@ -332,14 +336,14 @@ static void ws_broadcast_task(void *pv)
             "\"sta_connected\":%s,\"sta_ip\":\"%s\","
             "\"ap_ssid\":\"%s\",\"ble_connected\":%s,"
             "\"self_ota_active\":%s,\"self_ota_pct\":%d,"
-            "\"vcu_ota_active\":%s,\"vcu_ota_pct\":%d,"
+            "\"vcu_ota_active\":%s,\"vcu_dl_pct\":%d,\"vcu_flash_pct\":%d,"
             "\"status\":\"%s\","
             "\"vcu\":%s"
             "}",
             wifi_is_connected() ? "true" : "false", sta_ip,
             ap_ssid, ble_is_connected() ? "true" : "false",
             ota_is_running() ? "true" : "false", self_pct,
-            vcu_fw_is_running() ? "true" : "false", vcu_pct,
+            vcu_fw_is_running() ? "true" : "false", vcu_dl_pct, vcu_flash_pct,
             status,
             vjson
         );
