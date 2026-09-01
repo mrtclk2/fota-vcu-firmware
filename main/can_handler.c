@@ -84,6 +84,33 @@ static void parse_0x100(const twai_message_t *msg, vehicle_data_t *data)
 }
 
 /* ────────────────────────────────────────────
+ * 0x104 — Firmware versiyonu (VCU_kodlar/components/twai_can.c:
+ *         twai_send_version() → {major, minor, patch})
+ * ──────────────────────────────────────────── */
+static void parse_0x104(const twai_message_t *msg, vehicle_data_t *data)
+{
+    if (msg->data_length_code < 3) {
+        ESP_LOGW(TAG, "0x104 mesaji kisa: %d byte", msg->data_length_code);
+        return;
+    }
+    snprintf(data->fw_version, sizeof(data->fw_version), "v%u.%u.%u",
+             msg->data[0], msg->data[1], msg->data[2]);
+    ESP_LOGI(TAG, "VCU firmware surumu: %s", data->fw_version);
+}
+
+/* ────────────────────────────────────────────
+ * 0x105 — SoC (%0-100)
+ * ──────────────────────────────────────────── */
+static void parse_0x105(const twai_message_t *msg, vehicle_data_t *data)
+{
+    if (msg->data_length_code < 1) {
+        ESP_LOGW(TAG, "0x105 mesaji kisa: %d byte", msg->data_length_code);
+        return;
+    }
+    data->soc = msg->data[0];
+}
+
+/* ────────────────────────────────────────────
  * CAN okuma task
  * ──────────────────────────────────────────── */
 static void can_rx_task(void *arg)
@@ -99,6 +126,14 @@ static void can_rx_task(void *arg)
                 switch (msg.identifier) {
                     case 0x100:
                         parse_0x100(&msg, &current);
+                        vehicle_data_update(&current);
+                        break;
+                    case CAN_ID_VERSION:
+                        parse_0x104(&msg, &current);
+                        vehicle_data_update(&current);
+                        break;
+                    case CAN_ID_SOC:
+                        parse_0x105(&msg, &current);
                         vehicle_data_update(&current);
                         break;
                     case CAN_ID_UDS_RESP:

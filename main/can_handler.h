@@ -15,6 +15,7 @@
 #define CAN_ID_DTC              0x102
 #define CAN_ID_HVIL             0x103
 #define CAN_ID_VERSION          0x104
+#define CAN_ID_SOC              0x105
 
 /* ── UDS CAN ID'leri ── */
 #define CAN_ID_UDS_REQ          0x7E0   /* Tester → VCU */
