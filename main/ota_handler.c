@@ -49,6 +49,8 @@ static void ota_task(void *pvParameter)
         .timeout_ms        = 15000,
         .keep_alive_enable = true,
         .crt_bundle_attach = esp_crt_bundle_attach,
+        .buffer_size       = 4096,
+        .buffer_size_tx    = 2048,
     };
 
     esp_https_ota_config_t ota_config = {
@@ -213,12 +215,17 @@ static void vcu_fw_task(void *pvParameter)
         goto done;
     }
 
-    /* HTTP ile indir, partition'a chunk chunk yaz */
+    /* HTTP ile indir, partition'a chunk chunk yaz.
+     * buffer_size varsayılanı (512 byte) GitHub'ın S3'e yönlendirirken
+     * gönderdiği imzalı, çok uzun Location header'ını sığdıramıyor
+     * ("HTTP_CLIENT: Out of buffer") — büyütüyoruz. */
     esp_http_client_config_t http_cfg = {
         .url               = vcu_url,
         .timeout_ms        = 15000,
         .keep_alive_enable = true,
         .crt_bundle_attach = esp_crt_bundle_attach,
+        .buffer_size       = 4096,
+        .buffer_size_tx    = 2048,
     };
     esp_http_client_handle_t client = esp_http_client_init(&http_cfg);
 
