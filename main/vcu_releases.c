@@ -3,6 +3,8 @@
 #include "esp_crt_bundle.h"
 #include "esp_log.h"
 #include "cJSON.h"
+#include "status_hub.h"
+#include "wifi_handler.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -15,13 +17,20 @@ static const char *TAG = "VCU_RELEASES";
 #define GITHUB_API_URL \
     "https://api.github.com/repos/" GITHUB_OWNER "/" GITHUB_REPO "/releases?per_page=5"
 
-/* GitHub API yanıtı bu kadar byte'ı geçmez varsayımıyla sabit tampon;
- * taşarsa okuma orada kesilir, cJSON yine de geçerli bir prefix bulamazsa
- * parse hata döner (aşağıda ele alınıyor). */
-#define GITHUB_RESP_BUF_SIZE 16384
+/* GitHub API yanıtı, her release'in yazar/asset nesneleri dahil oldukça
+ * "şişkin" gelir (bir tek asset objesi bile ~1KB); birkaç release için
+ * güvenli pay bırakıyoruz. Taşarsa okuma orada kesilir, cJSON geçerli bir
+ * JSON bulamazsa parse hatası döner (aşağıda ele alınıyor). */
+#define GITHUB_RESP_BUF_SIZE 24576
 
 static esp_err_t fetch_raw(char **out_raw)
 {
+    if (!wifi_is_connected()) {
+        ESP_LOGW(TAG, "STA baglantisi yok, GitHub'a erisilemez");
+        status_hub_publish("GitHub: STA (internet) bagli degil, WiFi Ayarla'dan baglan");
+        return ESP_ERR_INVALID_STATE;
+    }
+
     esp_http_client_config_t cfg = {
         .url               = GITHUB_API_URL,
         .timeout_ms        = 15000,
@@ -36,14 +45,20 @@ static esp_err_t fetch_raw(char **out_raw)
     esp_err_t ret = esp_http_client_open(client, 0);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Baglanti acilamadi: %s", esp_err_to_name(ret));
+        char status[64];
+        snprintf(status, sizeof(status), "GitHub: baglanti hatasi (%s)", esp_err_to_name(ret));
+        status_hub_publish(status);
         esp_http_client_cleanup(client);
         return ret;
     }
 
     esp_http_client_fetch_headers(client);
-    int status = esp_http_client_get_status_code(client);
-    if (status != 200) {
-        ESP_LOGE(TAG, "GitHub API HTTP %d", status);
+    int status_code = esp_http_client_get_status_code(client);
+    if (status_code != 200) {
+        ESP_LOGE(TAG, "GitHub API HTTP %d", status_code);
+        char status[64];
+        snprintf(status, sizeof(status), "GitHub: API HTTP %d", status_code);
+        status_hub_publish(status);
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
         return ESP_FAIL;
@@ -80,9 +95,13 @@ esp_err_t vcu_releases_fetch_json(char *buf, size_t buf_size)
     if (ret != ESP_OK) return ret;
 
     cJSON *root = cJSON_Parse(raw);
+    size_t raw_len = strlen(raw);
     free(raw);
     if (!root || !cJSON_IsArray(root)) {
-        ESP_LOGE(TAG, "GitHub yaniti parse edilemedi");
+        ESP_LOGE(TAG, "GitHub yaniti parse edilemedi (%zu byte okundu)", raw_len);
+        char status[64];
+        snprintf(status, sizeof(status), "GitHub: JSON parse hatasi (%zu byte)", raw_len);
+        status_hub_publish(status);
         if (root) cJSON_Delete(root);
         return ESP_FAIL;
     }
@@ -123,5 +142,13 @@ esp_err_t vcu_releases_fetch_json(char *buf, size_t buf_size)
 done:
     pos += snprintf(buf + pos, buf_size - pos, "]");
     cJSON_Delete(root);
+
+    if (first) {
+        char status[64];
+        snprintf(status, sizeof(status), "GitHub: %d release, .bin bulunamadi", release_count);
+        status_hub_publish(status);
+    } else {
+        status_hub_publish("GitHub: release listesi guncellendi");
+    }
     return ESP_OK;
 }
