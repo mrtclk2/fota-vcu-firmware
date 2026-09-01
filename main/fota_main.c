@@ -2,10 +2,14 @@
 #include "nvs_flash.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "ble_handler.h"
 #include "wifi_handler.h"
 #include "vehicle_data.h"
 #include "can_handler.h"
+#include "status_hub.h"
+#include "gateway_web_server.h"
 
 void app_main(void) {
     /* NVS başlat - WiFi ve BLE için gerekli */
@@ -27,6 +31,8 @@ void app_main(void) {
         }
     }
 
+    status_hub_init();
+
     wifi_init();
     ble_init();
 
@@ -34,4 +40,7 @@ void app_main(void) {
     vehicle_data_init();
 
     can_handler_init();
+
+    /* Yönetim paneli: WiFi AP + HTTP/WebSocket (Core 0) */
+    xTaskCreatePinnedToCore(gateway_web_server_start_task, "gw_web", 8192, NULL, 3, NULL, 0);
 }

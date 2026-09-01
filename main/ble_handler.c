@@ -1,6 +1,7 @@
 #include "ble_handler.h"
 #include "wifi_handler.h"
 #include "ota_handler.h"
+#include "status_hub.h"
 #include "esp_log.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
@@ -178,7 +179,7 @@ static int ota_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                  ota_is_running()     ? "RUNNING" : "IDLE",
                  vcu_fw_is_running()  ? "RUNNING" : "IDLE");
         ESP_LOGI(TAG, "%s", status);
-        ble_notify_status(status);
+        status_hub_publish(status);
         return 0;
     }
 
@@ -329,6 +330,11 @@ void ble_notify_status(const char *text)
     if (rc != 0) {
         ESP_LOGW(TAG, "Status notify gonderilemedi: %d", rc);
     }
+}
+
+bool ble_is_connected(void)
+{
+    return s_conn_handle != BLE_HS_CONN_HANDLE_NONE;
 }
 
 static void ble_on_sync(void)

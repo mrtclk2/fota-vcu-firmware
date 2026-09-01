@@ -7,6 +7,8 @@ idf_component_register(
         "uds_client.c"
         "vehicle_data.c"
         "can_handler.c"
+        "status_hub.c"
+        "gateway_web_server.c"
     INCLUDE_DIRS "."
     REQUIRES
         nvs_flash
@@ -17,6 +19,7 @@ idf_component_register(
         app_update
         driver
         esp_http_client
+        esp_http_server
         esp-tls
         mbedtls
 )

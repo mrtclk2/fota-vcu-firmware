@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esp_err.h"
+#include <stdbool.h>
 
 /**
  * @brief BLE stack'i başlatır, advertising başlatır
@@ -19,3 +20,8 @@ void ble_notify_vehicle_data(const char *json);
  * @param text Durum metni (UTF-8, en fazla ~150 byte)
  */
 void ble_notify_status(const char *text);
+
+/**
+ * @brief Şu anda bağlı bir BLE merkezi (telefon/tablet) var mı?
+ */
+bool ble_is_connected(void);
