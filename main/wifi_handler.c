@@ -5,6 +5,8 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -23,44 +25,100 @@ static char s_ap_ssid[24] = "SECUREGW";
 #define GATEWAY_AP_PASSWORD "gateway1234"
 #define GATEWAY_AP_CHANNEL  6
 
-#define NVS_NAMESPACE  "wifi_creds"
-#define NVS_KEY_SSID   "ssid"
-#define NVS_KEY_PASS   "pass"
+/* ── Bilinen ağlar listesi ─────────────────────────────────────────
+ * Bench-test cihazı farklı yerlerde (ev/ofis/atölye/telefon hotspot'u)
+ * çalışıyor; her seferinde WiFi Ayarla'dan elle seçmek yerine daha önce
+ * girilen ağlardan hangisi menzildeyse otomatik ona bağlanır, kopunca
+ * sırayla diğerlerini dener. */
+#define WIFI_MAX_KNOWN            5
+#define WIFI_RETRY_TIMEOUT_MS     8000
+#define WIFI_RETRY_CYCLE_DELAY_MS 3000
 
-/* ── NVS'e kaydet ────────────────────────────────────────────────── */
-static void save_credentials(const char *ssid, const char *password)
+typedef struct {
+    char ssid[33];
+    char pass[65];
+} known_net_t;
+
+static known_net_t s_known[WIFI_MAX_KNOWN];
+static int         s_known_count = 0;
+
+#define NVS_NAMESPACE   "wifi_creds"
+#define NVS_KEY_COUNT   "count"
+#define NVS_KEY_SSID_FMT "ssid%d"
+#define NVS_KEY_PASS_FMT "pass%d"
+
+/* ── Bilinen ağlar listesini NVS'e yaz ──────────────────────────────── */
+static void save_known_networks(void)
 {
     nvs_handle_t h;
     if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) != ESP_OK) return;
-    nvs_set_str(h, NVS_KEY_SSID, ssid);
-    nvs_set_str(h, NVS_KEY_PASS, password);
+
+    nvs_set_u8(h, NVS_KEY_COUNT, (uint8_t)s_known_count);
+    for (int i = 0; i < s_known_count; i++) {
+        char key[8];
+        snprintf(key, sizeof(key), NVS_KEY_SSID_FMT, i);
+        nvs_set_str(h, key, s_known[i].ssid);
+        snprintf(key, sizeof(key), NVS_KEY_PASS_FMT, i);
+        nvs_set_str(h, key, s_known[i].pass);
+    }
     nvs_commit(h);
     nvs_close(h);
-    ESP_LOGI(TAG, "Credentials NVS'e kaydedildi (SSID: %s)", ssid);
 }
 
-/* ── NVS'ten oku ve bağlan ───────────────────────────────────────── */
-static void load_and_connect(void)
+/* ── Bilinen ağlar listesini NVS'ten oku ────────────────────────────── */
+static void load_known_networks(void)
 {
     nvs_handle_t h;
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &h) != ESP_OK) return;
 
-    char ssid[33] = {0};
-    char pass[65] = {0};
-    size_t ssid_len = sizeof(ssid);
-    size_t pass_len = sizeof(pass);
+    uint8_t count = 0;
+    nvs_get_u8(h, NVS_KEY_COUNT, &count);
+    if (count > WIFI_MAX_KNOWN) count = WIFI_MAX_KNOWN;
 
-    esp_err_t r1 = nvs_get_str(h, NVS_KEY_SSID, ssid, &ssid_len);
-    esp_err_t r2 = nvs_get_str(h, NVS_KEY_PASS, pass, &pass_len);
+    int loaded = 0;
+    for (int i = 0; i < count; i++) {
+        char key[8];
+        size_t ssid_len = sizeof(s_known[loaded].ssid);
+        size_t pass_len = sizeof(s_known[loaded].pass);
+
+        snprintf(key, sizeof(key), NVS_KEY_SSID_FMT, i);
+        esp_err_t r1 = nvs_get_str(h, key, s_known[loaded].ssid, &ssid_len);
+        snprintf(key, sizeof(key), NVS_KEY_PASS_FMT, i);
+        esp_err_t r2 = nvs_get_str(h, key, s_known[loaded].pass, &pass_len);
+
+        if (r1 == ESP_OK && r2 == ESP_OK && s_known[loaded].ssid[0] != '\0') {
+            loaded++;
+        }
+    }
     nvs_close(h);
 
-    if (r1 != ESP_OK || r2 != ESP_OK || strlen(ssid) == 0) {
-        ESP_LOGI(TAG, "NVS'te kayıtlı WiFi yok");
-        return;
+    s_known_count = loaded;
+    ESP_LOGI(TAG, "NVS'ten %d bilinen ag yuklendi", s_known_count);
+}
+
+/* ── Yeni ağı bilinen listeye ekle/güncelle ve kalıcı yap ───────────── */
+static void remember_network(const char *ssid, const char *password)
+{
+    for (int i = 0; i < s_known_count; i++) {
+        if (strcmp(s_known[i].ssid, ssid) == 0) {
+            strncpy(s_known[i].pass, password, sizeof(s_known[i].pass) - 1);
+            save_known_networks();
+            return;
+        }
     }
 
-    ESP_LOGI(TAG, "NVS'ten WiFi yükleniyor: %s", ssid);
-    wifi_connect(ssid, pass);
+    if (s_known_count >= WIFI_MAX_KNOWN) {
+        /* Liste doluysa en eskisini (index 0) at, yerine yenisini ekle */
+        memmove(&s_known[0], &s_known[1], sizeof(known_net_t) * (WIFI_MAX_KNOWN - 1));
+        s_known_count = WIFI_MAX_KNOWN - 1;
+    }
+
+    strncpy(s_known[s_known_count].ssid, ssid, sizeof(s_known[s_known_count].ssid) - 1);
+    strncpy(s_known[s_known_count].pass, password, sizeof(s_known[s_known_count].pass) - 1);
+    s_known_count++;
+
+    save_known_networks();
+    ESP_LOGI(TAG, "Ag bilinenler listesine eklendi: %s (toplam: %d)", ssid, s_known_count);
 }
 
 /* ── Event handler ───────────────────────────────────────────────── */
@@ -89,6 +147,50 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         snprintf(status, sizeof(status), "Wi-Fi: WiFi bağlandı. IP: " IPSTR,
                  IP2STR(&event->ip_info.ip));
         status_hub_publish(status);
+    }
+}
+
+/* ── Otomatik yeniden bağlanma görevi ────────────────────────────────
+ * Bağlı değilken bilinen ağları sırayla dener; biri menzilde ve doğruysa
+ * bağlanır, kopunca döngü otomatik devam eder. Elle "WiFi Ayarla" ile
+ * başlatılan bağlantıyla çakışmaması için wifi_connecting bayrağını da
+ * kontrol eder. */
+static void wifi_retry_task(void *arg)
+{
+    int idx = 0;
+
+    while (1) {
+        if (wifi_connected || wifi_connecting) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+        if (s_known_count == 0) {
+            vTaskDelay(pdMS_TO_TICKS(3000));
+            continue;
+        }
+
+        known_net_t *net = &s_known[idx % s_known_count];
+        ESP_LOGI(TAG, "Otomatik WiFi denemesi (%d/%d): %s",
+                 (idx % s_known_count) + 1, s_known_count, net->ssid);
+
+        wifi_config_t wifi_config = {0};
+        strncpy((char *)wifi_config.sta.ssid,     net->ssid, sizeof(wifi_config.sta.ssid) - 1);
+        strncpy((char *)wifi_config.sta.password, net->pass, sizeof(wifi_config.sta.password) - 1);
+
+        wifi_connecting = true;
+        esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+        esp_wifi_connect();
+
+        for (int waited = 0; waited < WIFI_RETRY_TIMEOUT_MS; waited += 300) {
+            if (wifi_connected || !wifi_connecting) break;
+            vTaskDelay(pdMS_TO_TICKS(300));
+        }
+
+        idx++;
+        if (!wifi_connected && (idx % s_known_count) == 0) {
+            /* Tüm liste bir tur denendi, biraz nefes al */
+            vTaskDelay(pdMS_TO_TICKS(WIFI_RETRY_CYCLE_DELAY_MS));
+        }
     }
 }
 
@@ -130,7 +232,8 @@ void wifi_init(void)
 
     ESP_LOGI(TAG, "Gateway yönetim ağı yayında: %s", s_ap_ssid);
 
-    load_and_connect();
+    load_known_networks();
+    xTaskCreate(wifi_retry_task, "wifi_retry", 3072, NULL, 4, NULL);
 }
 
 esp_err_t wifi_connect(const char *ssid, const char *password)
@@ -142,7 +245,7 @@ esp_err_t wifi_connect(const char *ssid, const char *password)
         wifi_connecting = false;
     }
 
-    save_credentials(ssid, password);
+    remember_network(ssid, password);
 
     wifi_config_t wifi_config = {0};
     strncpy((char *)wifi_config.sta.ssid,     ssid,     sizeof(wifi_config.sta.ssid)     - 1);
