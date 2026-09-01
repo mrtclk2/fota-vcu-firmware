@@ -9,6 +9,7 @@ idf_component_register(
         "can_handler.c"
         "status_hub.c"
         "gateway_web_server.c"
+        "vcu_releases.c"
     INCLUDE_DIRS "."
     REQUIRES
         nvs_flash
@@ -22,4 +23,5 @@ idf_component_register(
         esp_http_server
         esp-tls
         mbedtls
+        json
 )

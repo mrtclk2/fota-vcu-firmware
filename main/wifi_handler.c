@@ -174,3 +174,58 @@ void wifi_get_ap_ssid(char *buf, size_t size)
     strncpy(buf, s_ap_ssid, size - 1);
     buf[size - 1] = '\0';
 }
+
+#define WIFI_SCAN_MAX_RAW    20
+#define WIFI_SCAN_MAX_UNIQUE 15
+
+esp_err_t wifi_scan_json(char *buf, size_t buf_size)
+{
+    if (!buf || buf_size < 4) return ESP_ERR_INVALID_ARG;
+
+    wifi_scan_config_t scan_cfg = { .show_hidden = false };
+    esp_err_t ret = esp_wifi_scan_start(&scan_cfg, true);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi tarama basarisiz: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    uint16_t num = WIFI_SCAN_MAX_RAW;
+    static wifi_ap_record_t records[WIFI_SCAN_MAX_RAW];
+    esp_wifi_scan_get_ap_records(&num, records);
+
+    /* Aynı SSID'yi birden fazla AP yayınlıyorsa en güçlü sinyali tut */
+    wifi_ap_record_t *uniq[WIFI_SCAN_MAX_UNIQUE] = {0};
+    int uniq_count = 0;
+
+    for (int i = 0; i < num; i++) {
+        if (records[i].ssid[0] == '\0') continue;
+
+        int found = -1;
+        for (int j = 0; j < uniq_count; j++) {
+            if (strcmp((char *)uniq[j]->ssid, (char *)records[i].ssid) == 0) {
+                found = j;
+                break;
+            }
+        }
+        if (found >= 0) {
+            if (records[i].rssi > uniq[found]->rssi) uniq[found] = &records[i];
+        } else if (uniq_count < WIFI_SCAN_MAX_UNIQUE) {
+            uniq[uniq_count++] = &records[i];
+        }
+    }
+
+    size_t pos = 0;
+    pos += snprintf(buf + pos, buf_size - pos, "[");
+    for (int i = 0; i < uniq_count; i++) {
+        if (pos + 96 >= buf_size) break;
+        pos += snprintf(buf + pos, buf_size - pos,
+            "%s{\"ssid\":\"%s\",\"rssi\":%d,\"secure\":%s}",
+            i == 0 ? "" : ",",
+            (char *)uniq[i]->ssid,
+            uniq[i]->rssi,
+            uniq[i]->authmode == WIFI_AUTH_OPEN ? "false" : "true");
+    }
+    snprintf(buf + pos, buf_size - pos, "]");
+
+    return ESP_OK;
+}
