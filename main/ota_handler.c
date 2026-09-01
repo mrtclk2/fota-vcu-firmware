@@ -222,14 +222,32 @@ static void vcu_fw_task(void *pvParameter)
     };
     esp_http_client_handle_t client = esp_http_client_init(&http_cfg);
 
-    if (esp_http_client_open(client, 0) != ESP_OK) {
-        ESP_LOGE(TAG, "HTTP bağlantısı açılamadı");
-        status_hub_publish("OTA: VCU firmware indirme hatasi");
-        esp_http_client_cleanup(client);
-        goto done;
+    /* GitHub'ın "releases/download/..." linkleri gerçek dosyaya değil,
+     * genelde objects.githubusercontent.com'a 302 ile yönlendirir. Bu
+     * fonksiyon esp_http_client_perform() kullanmadığı (chunk chunk okuyup
+     * partition'a yazdığı) için yönlendirmeyi elle takip etmemiz lazım,
+     * yoksa yönlendirme sayfasının (boş/anlamsız) content-length'i okunur. */
+    int content_length = -1;
+    for (int hop = 0; hop < 5; hop++) {
+        if (esp_http_client_open(client, 0) != ESP_OK) {
+            ESP_LOGE(TAG, "HTTP bağlantısı açılamadı");
+            status_hub_publish("OTA: VCU firmware indirme hatasi");
+            esp_http_client_cleanup(client);
+            goto done;
+        }
+
+        content_length = esp_http_client_fetch_headers(client);
+        int status = esp_http_client_get_status_code(client);
+
+        if (status >= 300 && status < 400) {
+            ESP_LOGI(TAG, "Yonlendirme takip ediliyor (HTTP %d)", status);
+            esp_http_client_set_redirection(client);
+            esp_http_client_close(client);
+            continue;
+        }
+        break;
     }
 
-    int content_length = esp_http_client_fetch_headers(client);
     if (content_length <= 0) {
         ESP_LOGE(TAG, "Content-Length alınamadı");
         status_hub_publish("OTA: VCU firmware indirme hatasi");

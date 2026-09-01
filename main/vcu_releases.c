@@ -42,18 +42,29 @@ static esp_err_t fetch_raw(char **out_raw)
     esp_http_client_set_header(client, "User-Agent", "SecureGateway-ESP32");
     esp_http_client_set_header(client, "Accept", "application/vnd.github+json");
 
-    esp_err_t ret = esp_http_client_open(client, 0);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Baglanti acilamadi: %s", esp_err_to_name(ret));
-        char status[64];
-        snprintf(status, sizeof(status), "GitHub: baglanti hatasi (%s)", esp_err_to_name(ret));
-        status_hub_publish(status);
-        esp_http_client_cleanup(client);
-        return ret;
+    int status_code = -1;
+    for (int hop = 0; hop < 5; hop++) {
+        esp_err_t ret = esp_http_client_open(client, 0);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Baglanti acilamadi: %s", esp_err_to_name(ret));
+            char status[64];
+            snprintf(status, sizeof(status), "GitHub: baglanti hatasi (%s)", esp_err_to_name(ret));
+            status_hub_publish(status);
+            esp_http_client_cleanup(client);
+            return ret;
+        }
+
+        esp_http_client_fetch_headers(client);
+        status_code = esp_http_client_get_status_code(client);
+
+        if (status_code >= 300 && status_code < 400) {
+            esp_http_client_set_redirection(client);
+            esp_http_client_close(client);
+            continue;
+        }
+        break;
     }
 
-    esp_http_client_fetch_headers(client);
-    int status_code = esp_http_client_get_status_code(client);
     if (status_code != 200) {
         ESP_LOGE(TAG, "GitHub API HTTP %d", status_code);
         char status[64];
