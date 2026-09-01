@@ -55,7 +55,7 @@ static void save_known_networks(void)
 
     nvs_set_u8(h, NVS_KEY_COUNT, (uint8_t)s_known_count);
     for (int i = 0; i < s_known_count; i++) {
-        char key[8];
+        char key[16];
         snprintf(key, sizeof(key), NVS_KEY_SSID_FMT, i);
         nvs_set_str(h, key, s_known[i].ssid);
         snprintf(key, sizeof(key), NVS_KEY_PASS_FMT, i);
@@ -77,7 +77,7 @@ static void load_known_networks(void)
 
     int loaded = 0;
     for (int i = 0; i < count; i++) {
-        char key[8];
+        char key[16];
         size_t ssid_len = sizeof(s_known[loaded].ssid);
         size_t pass_len = sizeof(s_known[loaded].pass);
 
